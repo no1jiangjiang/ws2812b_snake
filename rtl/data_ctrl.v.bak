@@ -1,0 +1,1013 @@
+/*************************************************
+
+模块名           : data_ctrl.v
+***************模块功能描述**********************
+这里我们通过扫描我们的所处位置，对不同的位置我们给不同的RGB值
+
+*************************************************/
+module data_ctrl (
+    input                   sys_clk         ,
+    input                   sys_rst_n       ,
+    input                   tx_done_flag    ,//24addr发送结束标志，此时需要我们移动位置
+    input                   reset_done      ,
+
+    output  reg  [23:0]      RGB_data        ,//不同位置给出不同的RGB数值
+    output                  tx_24x64_done   //在显示单个页面时为标志信号(此时只是复位了300us)、动态显示时为持续信号(此时复位了300us+ T)需要大于33.3ms       
+);
+/*********************彩带显示**********************/
+//8种颜色数据
+parameter WHITE = 24'b00001111_00001111_00001111;  //白色
+parameter RED   = 24'b00001111_00000000_00000000;  //红色
+parameter GREEN = 24'b00000000_00001111_00000000;  //绿色
+parameter BLUE  = 24'b00000000_00000000_00001111;  //蓝色
+//0111110000010000000100000001000000010000000100000001000001111100
+/*0   :   0000100000001000000010000000100000001000000010000000100000001000;
+1   :   0000000001111110000000100000010000011000001000000111111000000000;
+2   :   0011111000000010000000100000111000000100000000100011111000000000;
+3	:	0000100000010100001000100011111000100010001000100010001000000000;
+4	:	0110000001010000010010000100100001001000010010000101000001100000;
+5	:	0111110001000000010000000111110001000000010000000100000001111100;
+6	:	0111110000010000000100000001000000010000000100000001000001111100;
+7	:	0100000001000000010000000100000001000000010000000111111000000000;
+8	:	1000000111000011101001011001100110000001100000011000000100000000;
+9	:	1000001011000010101000101001001010001010100001101000001000000000;
+10	:	0111100010000100100001001000010010000100100001000111100000000000;
+11	:	1111100010001000100010001111100011000000101000001001000010001000;
+12	:	0011110001000000010000000100000000111110000000100000001001111110;
+13	:	0111110000010000000100000001000000010000000100000001000000000000;
+14	:	1000000110000001100000011001000110101001110001011000001110000001;
+0011110001000000010000000100000000111110000000100000001001111110;*/
+//位置计数器
+/* 
+s:00111100 01000000 01000000 01000000 00111110 00000010 00000010 01111110
+t:01111100 00010000 00010000 00010000 00010000 00010000 00010000 00000000
+a:00001000 00010100 00100010 00111110 00100010 00100010 00100010 00000000
+r:11111000 10001000 10001000 11111000 11000000 10100000 10010000 10001000
+t:01111100 00010000 00010000 00010000 00010000 00010000 00010000 00000000
+//开始
+0000000010001000000000000000000001111110
+0001000010010000001000100001000000000010
+0001000010100000001000100001000000000010
+0001000011000000001000100001000000111110
+0001000011111000001111100001000001000000
+0001000010001000001000100001000001000000
+0001000010001000000101000001000001000000
+0111110011111000000010000111110000111100
+
+//模式model
+m:10000001 11000011 10100101 10011001 10000001 10000001 10000001 00000000
+o:01111000 10000100 10000100 10000100 10000100 10000100 01111000 00000000
+d:01100000 01010000 01001000 01001000 01001000 01001000 01010000 01100000
+e:01111100 01000000 01000000 01111100 01000000 01000000 01000000 01111100
+l:01000000 01000000 01000000 01000000 01000000 01000000 01111110 00000000
+
+0000000001111100011000000000000000000000 
+0111111001000000010100000111100010000001 
+0100000001000000010010001000010010000001 
+0100000001000000010010001000010010000001 
+0100000001111100010010001000010010011001 
+0100000001000000010010001000010010100101 
+0100000001000000010100001000010011000011 
+0100000001111100011000000111100010000001 
+
+//结束界面
+win 
+w:10000001 10000001 10000001 10010001 10101001 11000101 10000011 10000001
+i:01111100 00010000 00010000 00010000 00010000 00010000 00010000 01111100
+n:10000010 11000010 10100010 10010010 10001010 10000110 10000010 00000000
+
+00000000 01111100 10000001 
+10000010 00010000 10000011 
+10000110 00010000 11000101 
+10001010 00010000 10101001 
+10010010 00010000 10010001 
+10100010 00010000 10000001 
+11000010 00010000 10000001 
+10000010 01111100 10000001 
+
+lose
+l:01000000 01000000 01000000 01000000 01000000 01000000 01111110 00000000
+o:01111000 10000100 10000100 10000100 10000100 10000100 01111000 00000000
+s:00111100 01000000 01000000 01000000 00111110 00000010 00000010 01111110
+e:01111100 01000000 01000000 01111100 01000000 01000000 01000000 01111100
+
+01111100011111100000000000000000 
+01000000000000100111100001111110 
+01000000000000101000010001000000 
+01000000001111101000010001000000 
+01111100010000001000010001000000 
+01000000010000001000010001000000 
+01000000010000001000010001000000 
+01111100001111000111100001000000 
+
+
+
+
+
+ */
+ 
+//重新做人
+
+wire  [8:0]  address;
+wire  [8:0]  address_r;
+reg rden;
+reg q_r;
+reg [7:0]cnt_xy;
+reg [63:0] data ;
+parameter max = 64,max_much = 33;
+
+    wire [7:0] a;
+    wire [8:0] b;
+// reg [7:0] cnt;
+
+    reg          [07:00]    cnt         ; //Counter 
+    wire                    add_cnt     ; //Counter Enable
+    wire                    end_cnt     ; //Counter Reset 
+    reg          [08:00]    cnt_addr         ; //Counter 
+    wire                    add_cnt_addr     ; //Counter Enable
+    wire                    end_cnt_addr     ; //Counter Reset 
+    reg          [05:00]    cnt_much         ; //Counter 
+    wire                    add_cnt_much     ; //Counter Enable
+    wire                    end_cnt_much     ; //Counter Reset 
+start start_inst(
+	.address (address),
+	.clock   (sys_clk),
+	.rden    (rden),
+	.q       (q_r)
+);
+//先读取64
+//读使能信号 reset_done
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        rden <= 1'b1;//上电就读
+    end
+    else if(reset_done || end_cnt)begin//复位结束开始读下一帧、读完一帧拉低等待复位
+        rden <= ~rden;
+    end
+end
+
+
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        cnt <= 8'd0;
+    end
+    else if(add_cnt)begin//清零信号、一帧显示结束
+        if(end_cnt)begin
+            cnt <= 8'd0;
+        end
+        else begin
+            cnt <= cnt + 1'b1;
+        end
+    end
+    else begin
+        cnt <= 8'd0;
+    end
+end
+assign add_cnt = rden;
+assign end_cnt = add_cnt && cnt == max -1 ;
+
+//地址计数器
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        address <= 9'd0;
+    end
+    else if(rden)begin//读有效 给对应地址
+        if(cnt<8)
+            menu_address(0,much,cnt) ;
+            // address <= cnt;
+        else if(cnt>=8 && cnt <16)
+            menu_address(1,much,cnt) ;
+            // address <= (cnt - 8) + 40;
+        else if(cnt >= 16 && cnt <24)
+            menu_address(2,much,cnt) ;
+            // address <= (cnt - 16) + 80;
+        else if(cnt>=24 && cnt <32)
+            menu_address(3,much,cnt) ;
+            // address <= (cnt - 24) + 120;
+        else if(cnt >= 32 && cnt <40)
+            menu_address(4,much,cnt) ;
+            // address <= (cnt - 32) + 160;
+        else if(cnt >= 40 && cnt <48)
+            menu_address(5,much,cnt) ;
+            // address <= (cnt - 40) + 200;
+        else if(cnt>=48 && cnt <56)
+            menu_address(6,much,cnt) ;
+            // address <= (cnt - 48) + 240;
+        else if(cnt >= 56 && cnt <64)
+            menu_address(7,much,cnt) ;
+            // address <= (cnt - 56) + 280;
+    end
+    else begin
+        address <= 9'd0;
+    end
+end
+
+//task 地址计算
+    task menu_address;   
+        input       [3:0]       line         ;//所属行数
+        input       [5:0]       much         ;//第几帧
+        input       [7:0]       cnt          ;//位置     
+        begin 
+            a = line*8;
+            b = line*40
+            address_r =  ((cnt - a) + b) + much; 
+        end 
+    endtask   
+assign address = address_r;
+
+//显示帧数计数器
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        cnt_much <= 6'd0;
+    end
+    else if(add_cnt_much)begin//清零信号、一帧显示结束
+        if(end_cnt_much)begin
+            cnt_much <= 6'd0;
+        end
+        else begin
+            cnt_much <= cnt_much + 1'b1;
+        end
+    end
+    else begin
+        cnt_much <= cnt_much;
+    end
+end
+assign add_cnt_much = end_cnt;
+assign end_cnt_much = add_cnt_much && cnt_much == max_much -1 ;
+
+
+//接收数据
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        data <= 64'd0;
+    end
+    else if(rden)begin
+        data[cnt] <= q_r;
+    end
+    else begin
+        data <= data;
+    end
+end
+
+//位置计数器
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        cnt_xy <= 8'd0;
+    end
+    else if(reset_done)begin//复位结束
+        cnt_xy <= 8'd0;
+    end
+    // else if(tx_24x64_done)begin//超过64重新来
+        // cnt_xy <= cnt_xy;
+    // end
+    else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        cnt_xy <= cnt_xy + 1'b1;
+    end
+    else begin
+        cnt_xy <= cnt_xy;
+    end
+end
+
+assign tx_24x64_done = cnt_xy > 63;
+
+always @(posedge sys_clk or negedge sys_rst_n) begin
+    if(!sys_rst_n)begin
+        RGB_data <= 24'd0;
+    end
+    else if(data[cnt_xy])begin//前面两行
+        RGB_data <= GREEN;
+    end
+    else begin
+        RGB_data <= 24'd0;//灭
+    end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// reg [7:0] cnt_xy;
+// wire  flag = 1'b0;//除了游戏界面和难度系数界面，均需要滚动
+// reg [63:0]char_r  = 64' b1000000110000001100000011001000110101001110001011000001110000001;
+// reg [63:0]char_r2 = 64'b0111110000010000000100000001000000010000000100000001000001111100;
+// // reg [7:0] char[39:0] ;
+// reg char [7:0] [15:0] ;
+
+// // reg [63:0]char_r2 = 64'd0;
+
+    // wire       taps0       ;
+    // wire       taps1       ;
+    // wire       taps2       ;
+    // wire       taps3       ;
+    // wire       taps4       ;
+    // wire       taps5       ;
+    // wire       taps6       ;
+    // wire       taps7       ;
+
+// reg [1:0] tx_24x64_done_r;
+// wire  [7:0] temp;
+// reg [4:0] cnt_x;
+
+// always @(posedge sys_clk) begin
+    // for (int i=0; i<=7; i++)
+        // for (int j=0; j<=15; j++)
+            // if(j<8)
+                // char[i][j] = char_r[i*8+j];
+            // else 
+                // char[i][j] = char_r2[i*8+(j-8)];
+// end
+// //位置计数器
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 8'd0;
+    // end
+    // else if(tx_24x64_done)begin//超过64重新来
+        // cnt_xy <= 8'd0;
+    // end
+    // else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+    // else begin
+        // cnt_xy <= cnt_xy;
+    // end
+// end
+
+// assign tx_24x64_done = (cnt_xy > 63);
+// integer k=0;
+// integer l=0;
+// integer p=0;
+// // integer l=0;
+// always @(posedge sys_clk) begin
+    // for (int k=0; k<=7; k=K+1)
+    // if(tx_24x64_done)begin
+        // l=l+1;
+        // p=l+7;
+        // if(l>15) l = 0;
+         
+        // for (l; l<=l+7; l=l+1)
+            // if(tx_done_flag)begin
+                // if(char[k][l])begin
+                    // RGB_data = GREEN;
+                // end
+                // else begin
+                    // RGB_data = 24'd0;//灭
+                // end
+            // end
+// end
+
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(char_r2[cnt_xy])begin//前面两行
+        // RGB_data <= GREEN;
+    // end
+    // else begin
+        // RGB_data <= 24'd0;//灭
+    // end
+// end
+//位置计数器
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 8'd0;
+    // end
+    // else if(tx_24x64_done)begin//超过64重新来
+        // cnt_xy <= cnt_xy;
+    // end
+    // else begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+// end
+
+// assign temp = ((cnt_xy - 8'd64)%8 + 1)*8;
+// assign tx_24x64_done =(cnt_xy > 127);
+// assign flag = cnt_xy > 63 ;
+
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_x <= 5'd0;
+    // end
+    // else if()
+
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(cnt_xy>= 0 && cnt_xy < 16)begin//前面两行
+        // RGB_data <= WHITE;
+    // end
+    // else if(cnt_xy >= 16 && cnt_xy < 32)begin
+        // RGB_data <= RED;
+    // end
+    // else if(cnt_xy >= 32 && cnt_xy < 48)begin
+        // RGB_data <= GREEN;
+    // end
+    // else if(cnt_xy >= 48 && cnt_xy <64)begin
+        // RGB_data <= BLUE;
+    // end
+    // else begin
+        // RGB_data <= RGB_data;
+    // end
+// end
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(char_r2[cnt_xy])begin//前面两行
+        // RGB_data <= GREEN;
+    // end
+    // else begin
+        // RGB_data <= 24'd0;//灭
+    // end
+// end
+//移位寄存器实现界面滚动
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // char <= 64'd0;
+    // end
+    // else if(flag)begin
+        // char[07:00] <= {taps0,char_r2[7:1]  };
+        // char[15:08] <= {taps1,char_r2[15:9] };
+        // char[23:16] <= {taps2,char_r2[23:17]};
+        // char[31:24] <= {taps3,char_r2[31:25]};
+        // char[39:32] <= {taps4,char_r2[39:33]};
+        // char[47:40] <= {taps5,char_r2[47:41]};
+        // char[55:48] <= {taps6,char_r2[55:49]};
+        // char[63:56] <= {taps7,char_r2[63:57]}; 
+    // end
+    // else begin
+        // char_r2 <= char_r2;
+    // end
+// end
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // tx_24x64_done_r <= 2'd0;
+    // end
+    // else begin
+        // tx_24x64_done_r <= {tx_24x64_done_r[0],tx_24x64_done};
+    // end
+// end
+
+// ws2812_8x8 ws2812_8x8_inst(
+	// .aclr            (~sys_rst_n),
+	// .clken           (1'b1),//数据使能信号
+	// .clock           (sys_clk),
+	// .shiftin         (char_r[cnt_xy]),
+	// .shiftout        (),
+
+	// .taps0x          (taps0),
+	// .taps1x          (taps1),
+	// .taps2x          (taps2),
+	// .taps3x          (taps3),
+	// .taps4x          (taps4),
+	// .taps5x          (taps5),
+	// .taps6x          (taps6),
+	// .taps7x          (taps7)
+// );
+
+
+/*********************显示江哥**********************/
+// //位置计数器
+// reg [6:0] cnt_xy;
+
+// //状态空间
+// parameter S1 = 2'b01,
+        //   S2 = 2'b10;
+
+// parameter max_1s = 50_000_000;
+
+// reg [1:0] state_c,state_n;
+
+// reg high_1s;
+
+// reg [25:0] cnt_1s;
+
+// wire tx_24x64_done_pos;
+
+// //打两拍抓tx_24x64_done的上升沿用于开始1s计数
+// reg tx_24x64_done_r1,tx_24x64_done_r2;
+
+// //打拍
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // tx_24x64_done_r1 <= 1'b0;
+        // tx_24x64_done_r2 <= 1'b0;
+    // end
+    // else begin
+        // tx_24x64_done_r1 <= tx_24x64_done;
+        // tx_24x64_done_r2 <= tx_24x64_done_r1;
+    // end
+// end
+
+// assign tx_24x64_done_pos = ~tx_24x64_done_r2 && tx_24x64_done_r1; 
+
+// //根据tx_24x64_done的上升沿或1s的脉冲信号产生持续信号，用于计数
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // high_1s <= 1'b0;
+    // end
+    // else if(tx_24x64_done_pos || (cnt_1s == max_1s -1))begin
+        // high_1s <= ~high_1s;
+    // end
+    // else begin
+        // high_1s <= high_1s;
+    // end
+// end
+
+// //1s计数器，需要在24x64发送完后，计数1s再更新我们的cnt_xy进行写入新的界面
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(cnt_1s == max_1s - 1)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(high_1s)begin
+        // cnt_1s <= cnt_1s + 1'b1;
+    // end
+    // else begin
+        // cnt_1s <= 26'd0;
+    // end
+// end
+
+
+// //位置计数器
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63 && cnt_1s == max_1s -1)begin//超过64重新来、一秒切换
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63)begin//超过64重新来
+        // cnt_xy <= cnt_xy;
+    // end
+    // else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+    // else begin
+        // cnt_xy <= cnt_xy;
+    // end
+// end
+
+// assign tx_24x64_done = (cnt_xy > 63);
+
+// //江
+// reg [63:0] char_1=64'b00000000_00000001_11111010_00100101_00100010_00100100_11111010_00000001;
+// //哥
+// reg [63:0] char_2=64'b01111111_00110100_00110100_01111111_00110100_00110100_00001100_00000100;
+// //不同状态需要显示的字符串
+// reg [63:0] char_r;
+
+// //声明状态
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // state_c <= S1;
+    // end
+    // else begin
+        // state_c <= state_n;
+    // end
+// end
+
+// //状态机第二段、进行状态的跳转
+// always @(*) begin
+    // if(!sys_rst_n)begin
+        // state_n = S1;
+    // end
+    // case(state_c)
+    // S1: begin
+        // if(cnt_1s == max_1s -1)begin
+            // state_n = S2;
+        // end
+        // else begin
+            // state_n = S1;
+        // end
+    // end
+    // S2: begin
+        // if(cnt_1s == max_1s -1)begin
+            // state_n = S1;
+        // end
+        // else begin
+            // state_n = S2;
+        // end
+    // end
+    // default : state_n = S1;
+    // endcase
+// end
+
+// //状态机第三段对不同状态对char_r赋不同的值
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // char_r <= 64'd0;
+    // end
+    // else if(state_c == S1) begin
+        // char_r <= char_1;
+    // end
+    // else if(state_c == S2) begin
+        // char_r <= char_2;
+    // end
+    // else begin
+        // char_r <= char_r;
+    // end
+// end
+
+// //根据不同的状态显示不同的内容
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(char_r[cnt_xy])begin//前面两行
+        // RGB_data <= WHITE;
+    // end
+    // else begin
+        // RGB_data <= 24'd0;//灭
+    // end
+// end
+/*********************从ROM中读取图片信息**********************/
+
+// //位置计数器
+// reg [6:0] cnt_xy;
+
+// //位置计数器
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63)begin//超过64重新来
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+    // else begin
+        // cnt_xy <= cnt_xy;
+    // end
+// end
+
+// assign tx_24x64_done = (cnt_xy > 63);
+// //例化ROM，里面存了8x8的BMP位图
+// rom_24x64 rom_24x64(
+	// .address        (cnt_xy),//读取位置
+	// .clock          (sys_clk),
+	// .q              (RGB_data)//24位数据
+// );
+
+//8x8的位图太小显示的效果不好
+
+/*********************显示Z字流水效果**********************/
+//位置计数器
+// reg [6:0] cnt_xy;
+
+
+// parameter max_1s = 25_000_000;//0.5s刷新一次界面
+
+// reg high_1s;
+
+// reg [25:0] cnt_1s;
+
+
+// wire tx_24x64_done_pos;
+
+// //打两拍抓tx_24x64_done的上升沿用于开始1s计数
+// reg tx_24x64_done_r1,tx_24x64_done_r2;
+
+// //打拍
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // tx_24x64_done_r1 <= 1'b0;
+        // tx_24x64_done_r2 <= 1'b0;
+    // end
+    // else begin
+        // tx_24x64_done_r1 <= tx_24x64_done;
+        // tx_24x64_done_r2 <= tx_24x64_done_r1;
+    // end
+// end
+
+// assign tx_24x64_done_pos = ~tx_24x64_done_r2 && tx_24x64_done_r1; 
+
+// //根据tx_24x64_done的上升沿或1s的脉冲信号产生持续信号，用于计数
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // high_1s <= 1'b0;
+    // end
+    // else if(tx_24x64_done_pos || (cnt_1s == max_1s -1))begin
+        // high_1s <= ~high_1s;
+    // end
+    // else begin
+        // high_1s <= high_1s;
+    // end
+// end
+
+// //1s计数器，需要在24x64发送完后，计数1s再更新我们的cnt_xy进行写入新的界面
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(cnt_1s == max_1s - 1)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(high_1s)begin
+        // cnt_1s <= cnt_1s + 1'b1;
+    // end
+    // else begin
+        // cnt_1s <= 26'd0;
+    // end
+// end
+
+
+// //位置计数器，一个界面
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63 && cnt_1s == max_1s -1)begin//超过64重新来、一秒切换
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63)begin//超过64重新来
+        // cnt_xy <= cnt_xy;
+    // end
+    // else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+    // else begin
+        // cnt_xy <= cnt_xy;
+    // end
+// end
+
+// assign tx_24x64_done = (cnt_xy > 63);//一个界面只亮一个点，
+
+// //不同状态需要显示的字符串
+// reg [63:0] char_r;
+
+
+// //计数64个界面
+// reg [63:0] cnt_64;
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_64 <= 64'd0;
+    // end
+    // else if(cnt_64 > 63 )begin
+        // cnt_64 <= 64'd0;
+    // end
+    // else if(tx_24x64_done_pos)begin//在一个界面结束加一
+        // cnt_64 <= cnt_64 + 1'b1;
+    // end
+    // else begin
+        // cnt_64 <= cnt_64;
+    // end
+// end
+
+// wire [23:0] q;
+
+// //例化ROM，里面存了8x8的步长为4的亮度数据
+// rom_24x64 rom_24x64(
+	// .address        (cnt_xy),//读取位置
+	// .clock          (sys_clk),
+	// .q              (q)//24位数据
+// );
+
+
+// //根据不同的计数界面显示不同的内容
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(cnt_64 == cnt_xy )begin
+        // RGB_data <= q;
+    // end
+    // else begin
+        // RGB_data <= 24'd0;//灭
+    // end
+// end
+
+/*********************FIFO实现A到Z的向右流水**********************/
+//位置计数器
+// reg [6:0] cnt_xy;
+
+
+// parameter max_1s = 25_000_000;//0.5s刷新一次界面
+
+// reg high_1s;
+
+// reg [25:0] cnt_1s;
+
+
+// wire tx_24x64_done_pos;
+
+// //打两拍抓tx_24x64_done的上升沿用于开始1s计数
+// reg tx_24x64_done_r1,tx_24x64_done_r2;
+
+// //打拍
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // tx_24x64_done_r1 <= 1'b0;
+        // tx_24x64_done_r2 <= 1'b0;
+    // end
+    // else begin
+        // tx_24x64_done_r1 <= tx_24x64_done;
+        // tx_24x64_done_r2 <= tx_24x64_done_r1;
+    // end
+// end
+
+// assign tx_24x64_done_pos = ~tx_24x64_done_r2 && tx_24x64_done_r1; 
+
+// //根据tx_24x64_done的上升沿或1s的脉冲信号产生持续信号，用于计数
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // high_1s <= 1'b0;
+    // end
+    // else if(tx_24x64_done_pos || (cnt_1s == max_1s -1))begin
+        // high_1s <= ~high_1s;
+    // end
+    // else begin
+        // high_1s <= high_1s;
+    // end
+// end
+
+// //1s计数器，需要在24x64发送完后，计数1s再更新我们的cnt_xy进行写入新的界面
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(cnt_1s == max_1s - 1)begin
+        // cnt_1s <= 26'd0;
+    // end
+    // else if(high_1s)begin
+        // cnt_1s <= cnt_1s + 1'b1;
+    // end
+    // else begin
+        // cnt_1s <= 26'd0;
+    // end
+// end
+
+
+// //位置计数器，一个界面
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63 && cnt_1s == max_1s -1)begin//超过64重新来、一秒切
+        // cnt_xy <= 7'd0;
+    // end
+    // else if(cnt_xy >63)begin//超过64重新来
+        // cnt_xy <= cnt_xy;
+    // end
+    // else if(tx_done_flag)begin//一组24位数据发送过后进行下一组
+        // cnt_xy <= cnt_xy + 1'b1;
+    // end
+    // else begin
+        // cnt_xy <= cnt_xy;
+    // end
+// end
+
+// assign tx_24x64_done = (cnt_xy > 63);//一个界面只亮一个点，
+
+// //不同状态需要显示的字符串
+// // reg [63:0] char_r;
+
+
+// //计数64个界面
+// reg [7:0] cnt_64;
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // cnt_64 <= 64'd0;
+    // end
+    // else if(cnt_64 > 1 )begin
+        // cnt_64 <= 64'd0;
+    // end
+    // else if(tx_24x64_done_pos)begin//在一个界面结束加一
+        // cnt_64 <= cnt_64 + 1'b1;
+    // end
+    // else begin
+        // cnt_64 <= cnt_64;
+    // end
+// end
+
+// // wire [23:0] q;
+
+// // //例化ROM，里面存了8x8的步长为4的亮度数据
+// // rom_24x64 rom_24x64(
+	// // .address        (cnt_xy),//读取位置
+	// // .clock          (sys_clk),
+	// // .q              (q)//24位数据
+// // );
+
+// wire [23:0] data     ;
+// wire        rdclk    ;
+// wire        rdreq    ;
+// wire        wrclk    ;
+// wire        wrreq    ;
+// wire [23:0] q        ;
+// wire        rdempty  ;
+// wire        rdfull   ;
+// wire        rdusedw  ;
+// wire        wrempty  ;
+// wire        wrfull   ;
+// wire        wrusedw  ;
+
+// FIFO_24x1536 FIFO_24x1536_inst(
+	// .data                        (data   ),//写数据
+	// .wrclk                       (sys_clk),
+	// .wrreq                       (wrreq  ),
+
+    // .wrempty                     (wrempty),
+    // .wrfull                      (wrfull ),
+    // // .wrusedw                     (),
+
+    // .rdclk                       (sys_clk),
+    // .rdreq                       (rdreq  ),
+	// .q                           (q      ),
+	// .rdempty                     (rdempty),
+	// .rdfull                      (rdfull )
+	// // .rdusedw                     ()
+// );
+
+
+// /*********************FIFO写入模块**********************/
+// FIFO_wr fifo_wr_inst(
+    // /*input*/               .clk     (sys_clk  ),
+    // /*input*/               .rst_n   (sys_rst_n),
+    // /*input*/               .wrempty (wrempty),//写空信号
+    // /*input*/               .wrfull  (wrfull),//写满信号
+
+    // /*output reg [23:0]*/   .data    (data),//写数据
+    // /*output reg       */   .wrreq   (wrreq) //写请求
+// );
+// /*********************FIFO读取模块**********************/
+// FIFO_rd fifo_rd_inst(
+    // /*input       */    .clk         (sys_clk  ),
+    // /*input       */    .rst_n       (sys_rst_n),
+    // /*input [23:0]*/    .data        (q),
+    // /*input       */    .rdfull      (rdfull ),
+    // /*input       */    .rdempty     (rdempty),
+                        // .tx_24done   (tx_done_flag),
+                        // .high_1s     (high_1s),
+
+    // /*output reg */     .rdreq       (rdreq),
+                        // .data_fifo   (RGB_data)
+// );
+
+
+//根据不同的计数界面显示不同的内容
+// always @(posedge sys_clk or negedge sys_rst_n) begin
+    // if(!sys_rst_n)begin
+        // RGB_data <= 24'd0;
+    // end
+    // else if(cnt_64 == 0 )begin
+        // RGB_data <= BLUE;
+    // end
+    // else begin
+        // RGB_data <= RGB_data;//灭
+    // end
+// end
+endmodule

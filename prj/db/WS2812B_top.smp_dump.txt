@@ -1,0 +1,42 @@
+
+State Machine - |WS2812B_top|key_filter:key_filter_inst3|state_c
+Name state_c.UP state_c.HOLD state_c.DOWN state_c.IDLE 
+state_c.IDLE 0 0 0 0 
+state_c.DOWN 0 0 1 1 
+state_c.HOLD 0 1 0 1 
+state_c.UP 1 0 0 1 
+
+State Machine - |WS2812B_top|key_filter:key_filter_inst2|state_c
+Name state_c.UP state_c.HOLD state_c.DOWN state_c.IDLE 
+state_c.IDLE 0 0 0 0 
+state_c.DOWN 0 0 1 1 
+state_c.HOLD 0 1 0 1 
+state_c.UP 1 0 0 1 
+
+State Machine - |WS2812B_top|key_filter:key_filter_inst1|state_c
+Name state_c.UP state_c.HOLD state_c.DOWN state_c.IDLE 
+state_c.IDLE 0 0 0 0 
+state_c.DOWN 0 0 1 1 
+state_c.HOLD 0 1 0 1 
+state_c.UP 1 0 0 1 
+
+State Machine - |WS2812B_top|snake_ctrl:snake_ctrl_inst|state_c
+Name state_c.Lose state_c.Win state_c.Down state_c.Up state_c.Left state_c.Rright state_c.IDLE 
+state_c.IDLE 0 0 0 0 0 0 0 
+state_c.Rright 0 0 0 0 0 1 1 
+state_c.Left 0 0 0 0 1 0 1 
+state_c.Up 0 0 0 1 0 0 1 
+state_c.Down 0 0 1 0 0 0 1 
+state_c.Win 0 1 0 0 0 0 1 
+state_c.Lose 1 0 0 0 0 0 1 
+
+State Machine - |WS2812B_top|data_ctrl:data_ctrl_inst|state_c
+Name state_c.game_lose state_c.game_win state_c.play state_c.difficulty_thr state_c.difficulty_two state_c.difficulty_one state_c.model state_c.start 
+state_c.start 0 0 0 0 0 0 0 0 
+state_c.model 0 0 0 0 0 0 1 1 
+state_c.difficulty_one 0 0 0 0 0 1 0 1 
+state_c.difficulty_two 0 0 0 0 1 0 0 1 
+state_c.difficulty_thr 0 0 0 1 0 0 0 1 
+state_c.play 0 0 1 0 0 0 0 1 
+state_c.game_win 0 1 0 0 0 0 0 1 
+state_c.game_lose 1 0 0 0 0 0 0 1 

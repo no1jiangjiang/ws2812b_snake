@@ -1,0 +1,40 @@
+/*************************************************
+
+模块名           : WS2812B_top.v
+***************模块功能描述**********************
+这是WS2812B的顶层模块，我们计划在8x8实现每一行显示的颜色不同，后续再修改数据显示名字
+
+*************************************************/
+module WS2812B_top(
+    input       sys_clk     ,
+    input       sys_rst_n   ,
+
+    output      data_pwm    
+);
+
+wire [23:0] RGB_data_r;
+wire tx_done_r;
+wire tx_24x64_done;
+wire reset_done;
+/*********************RGB色彩数据处理**********************/
+data_ctrl data_ctrl_inst(
+    /*input*/               .sys_clk         (sys_clk  ),
+    /*input*/               .sys_rst_n       (sys_rst_n),
+                            .tx_done_flag    (tx_done_r),
+                            .reset_done      (reset_done),
+
+    /*output reg [23:0]*/   .RGB_data        (RGB_data_r),
+                            .tx_24x64_done   (tx_24x64_done)
+);
+/*********************高低电平信号编码处理**********************/
+HL_ctrl HL_ctrl_inst(
+    /*input       */    .sys_clk             (sys_clk  ),
+    /*input       */    .sys_rst_n           (sys_rst_n),
+    /*input [23:0]*/    .rgb_data            (RGB_data_r),
+                        .tx_24x64_done       (tx_24x64_done),
+
+    /*output  */        .send_clk            (data_pwm),
+                        .reset_done          (reset_done);
+                        .tx_done             (tx_done_r) 
+);
+endmodule
